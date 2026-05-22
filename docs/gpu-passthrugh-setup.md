@@ -17,85 +17,109 @@ Guest: Ubuntu 24.04 VM (ai-inference)
 
 ---
 
-## Part 1 - Verify IOMMU on Proxmox Host
+## Part 1 Verify IOMMU on Proxmox Host
 
 Run on BigWorld shell:
 
+```bash
 dmesg | grep -i iommu
+```
 
 Look for:
+
+```
 DMAR: IOMMU enabled
+```
 
 Also check the GPU IOMMU group:
 
+```bash
 lspci -v | grep -A 10 "GTX 1060"
+```
 
 The GTX 1060 must be alone in its IOMMU group for clean passthrough.
 If other devices share the group you will need ACS override patching.
 
 ---
 
-## Part 2 - Get GPU Device IDs
+## Part 2 Get GPU Device IDs
 
 Run:
 
+```bash
 lspci -n | grep 01:00
+```
 
 Output for GTX 1060:
 
+```
 01:00.0 0300: 10de:1c03 (rev a1)
 01:00.1 0403: 10de:10f1 (rev a1)
+```
 
-10de:1c03 is the GPU video device
-10de:10f1 is the GPU HDMI audio device
+`10de:1c03` is the GPU video device
+`10de:10f1` is the GPU HDMI audio device
 
 Both must be bound to VFIO together.
 
 ---
 
-## Part 3 - Configure VFIO on Host
+## Part 3 Configure VFIO on Host
 
 Add VFIO kernel modules:
 
+```bash
 echo "vfio" >> /etc/modules
 echo "vfio_iommu_type1" >> /etc/modules
 echo "vfio_pci" >> /etc/modules
 echo "vfio_virqfd" >> /etc/modules
+```
 
 Bind GPU device IDs to VFIO:
 
+```bash
 echo "options vfio-pci ids=10de:1c03,10de:10f1" >> /etc/modprobe.d/vfio.conf
+```
 
 Blacklist nouveau and nvidia on host:
 
+```bash
 echo "blacklist nouveau" >> /etc/modprobe.d/blacklist.conf
 echo "blacklist nvidia" >> /etc/modprobe.d/blacklist.conf
 echo "options nouveau modeset=0" >> /etc/modprobe.d/blacklist.conf
+```
 
 Update initramfs and reboot:
 
+```bash
 update-initramfs -u
 reboot
+```
 
 ---
 
-## Part 4 - Verify VFIO Claimed the GPU
+## Part 4 Verify VFIO Claimed the GPU
 
 After reboot run:
 
+```bash
 lspci -k | grep -A 3 "01:00"
+```
 
 Must show:
 
+```
 Kernel driver in use: vfio-pci
+```
 
 Do not proceed until this confirms vfio-pci.
 If it still shows nouveau the blacklist did not apply correctly.
 
 ---
 
-## Part 5 - Create VM in Proxmox
+## Part 5 Create VM in Proxmox
 
+```
 VM ID: 400
 Name: ai-inference
 Node: BigWorldpve
@@ -139,14 +163,16 @@ Firewall: YES
 Confirm Tab
 UNCHECK Start after created
 Click Finish
+```
 
 ---
 
-## Part 6 - Add GPU to VM
+## Part 6 Add GPU to VM
 
 In Proxmox UI:
 VM 400 → Hardware → Add → PCI Device
 
+```
 Settings:
 Type: Raw Device
 Device: 0000:01:00.0
@@ -154,34 +180,43 @@ All Functions: YES
 PCI-Express: YES
 Primary GPU: NO
 ROM-Bar: YES
+```
 
 ---
 
-## Part 7 - Add kvm=off (CRITICAL for Nvidia)
+## Part 7 Add kvm=off (CRITICAL for Nvidia)
 
 Run on BigWorld shell:
 
+```bash
 echo "args: -cpu 'host,kvm=off'" >> /etc/pve/qemu-server/400.conf
+```
 
 Verify:
 
+```bash
 cat /etc/pve/qemu-server/400.conf | grep args
+```
 
 Must show:
 
+```
 args: -cpu 'host,kvm=off'
+```
 
 Without this Nvidia drivers detect the hypervisor and refuse to load.
 This is a known Nvidia anti-VM protection that kvm=off bypasses.
 
 ---
 
-## Part 8 - Install Ubuntu Server
+## Part 8 Install Ubuntu Server
 
 Add temporary display for install:
 
+```bash
 qm set 400 -vga std
 qm start 400
+```
 
 Open Proxmox console and install Ubuntu Server.
 
@@ -196,77 +231,102 @@ VM 400 → Hardware → CD/DVD Drive → Edit → Do not use any media
 
 Switch to headless after install:
 
+```bash
 qm stop 400
 qm set 400 -vga none
 qm start 400
+```
 
-Find VM IP in UniFi controller by MAC: bc:24:11:5d:39:0c
-IP assigned: 10.10.30.135
+Find VM IP in UniFi controller by MAC: `<vm-mac-address>`
+IP assigned: `<ai-inference-vm-ip>`
 
 ---
 
-## Part 9 - Install Nvidia Drivers Inside VM
+## Part 9 Install Nvidia Drivers Inside VM
 
 SSH into VM:
 
-ssh cedshomelab@10.10.30.135
+```bash
+ssh cedshomelab@<ai-inference-vm-ip>
+```
 
 Update system:
 
+```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl wget git build-essential htop
+```
 
 Install Nvidia drivers:
 
+```bash
 sudo apt install -y ubuntu-drivers-common
 sudo ubuntu-drivers autoinstall
+```
 
 Reboot:
 
+```bash
 sudo reboot
+```
 
 Verify GPU is working:
 
+```bash
 nvidia-smi
+```
 
 Expected output:
+
+```
 NVIDIA GeForce GTX 1060 6GB
 Driver Version: 535.288.01
 CUDA Version: 12.2
 Memory: 6144MiB
+```
 
 ---
 
-## Part 10 - Install Ollama with GPU Support
+## Part 10 Install Ollama with GPU Support
 
 Install Ollama:
 
+```bash
 curl -fsSL https://ollama.com/install.sh | sh
+```
 
 Bind Ollama to all interfaces so other VMs can reach it:
 
+```bash
 sudo systemctl stop ollama
 sudo mkdir -p /etc/systemd/system/ollama.service.d
 sudo cp /path/to/configs/ollama-override.conf /etc/systemd/system/ollama.service.d/override.conf
 sudo systemctl daemon-reload
 sudo systemctl start ollama
 sudo systemctl enable ollama
+```
 
 Verify network binding:
 
+```bash
 ss -tlnp | grep 11434
+```
 
-Must show 0.0.0.0:11434
+Must show `0.0.0.0:11434`
 
 Pull model:
 
+```bash
 ollama pull mistral:7b
+```
 
 Test inference:
 
+```bash
 ollama run mistral:7b
+```
 
-Type hello and verify fast response then exit with /bye
+Type `hello` and verify fast response then exit with `/bye`
 
 ---
 
@@ -286,20 +346,24 @@ Type hello and verify fast response then exit with /bye
 
 ## Troubleshooting
 
-VM fails to start after GPU added:
-Check that kvm=off is in args
-Check that vfio-pci is the kernel driver in use
-Try setting rombar=0 if reset errors appear
+### VM fails to start after GPU added
 
-nvidia-smi not found after drivers installed:
+Check that `kvm=off` is in args
+Check that `vfio-pci` is the kernel driver in use
+Try setting `rombar=0` if reset errors appear
+
+### nvidia-smi not found after drivers installed
+
 Reboot the VM
-Run sudo ubuntu-drivers autoinstall again
+Run `sudo ubuntu-drivers autoinstall` again
 
-Ollama only reachable on localhost:
-Verify override.conf is in /etc/systemd/system/ollama.service.d/
-Run systemctl daemon-reload then restart ollama
-Check ss -tlnp shows 0.0.0.0 not 127.0.0.1
+### Ollama only reachable on localhost
 
-CrewAI cannot reach Ollama from other VM:
+Verify `override.conf` is in `/etc/systemd/system/ollama.service.d/`
+Run `systemctl daemon-reload` then restart ollama
+Check `ss -tlnp` shows `0.0.0.0` not `127.0.0.1`
+
+### CrewAI cannot reach Ollama from other VM
+
 Verify firewall is not blocking port 11434
-Test with curl http://OLLAMA_IP:11434/api/tags from agent VM
+Test with `curl http://<ai-inference-vm-ip>:11434/api/tags` from agent VM
