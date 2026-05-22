@@ -137,7 +137,7 @@ Next Actions
 1. Run network diagnostics on K3s-Node-4
 2. Scale down non critical workloads to reduce CPU pressure
 3. Monitor remaining nodes and restore K3s-Node-4 when resolved
-4. Upgrade BigWorld to a more powerful server.
+
 
 Priority Level
 HIGH - Immediate action required
@@ -220,6 +220,7 @@ Covers:
 - [ ] Integrate with Uptime Kuma webhooks
 - [ ] Add memory persistence between crew runs
 - [ ] Multi-crew orchestration
+- [ ] Upgrade BigWorld to a more powerful server
 
 ---
 
